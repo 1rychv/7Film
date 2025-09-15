@@ -1,5 +1,5 @@
-import React, { useMemo, useRef, useState } from 'react';
-import { StyleSheet, View, Text, Pressable, Image, ScrollView, NativeSyntheticEvent, NativeScrollEvent } from 'react-native';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { StyleSheet, View, Text, Pressable, Image, NativeSyntheticEvent, NativeScrollEvent, useWindowDimensions, Animated } from 'react-native';
 import { CameraView, useCameraPermissions, CameraType, FlashMode } from 'expo-camera';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
@@ -33,10 +33,22 @@ export default function CameraScreen() {
 
   const zoomSteps = useMemo(() => [0.5, 1, 2, 3], []);
   const [zoomIndex, setZoomIndex] = useState(1); // default 1x
-
   const ITEM_W = 68;
-  const getOpacityForDistance = (d: number) => (d <= 0 ? 1 : d === 1 ? 0.4 : d === 2 ? 0.2 : 0.1);
-  const getScaleForDistance = (d: number) => (d <= 0 ? 1 : d === 1 ? 0.95 : d === 2 ? 0.9 : 0.85);
+  const { width } = useWindowDimensions();
+  const SIDE_PAD = Math.max(0, (width - ITEM_W) / 2);
+  const zoomX = useRef(new Animated.Value(zoomIndex * ITEM_W)).current;
+  const filterX = useRef(new Animated.Value(0)).current;
+  const zoomRef = useRef<Animated.ScrollView | null>(null);
+  const filterRef = useRef<Animated.ScrollView | null>(null);
+
+  useEffect(() => {
+    // center initial positions
+    requestAnimationFrame(() => {
+      zoomRef.current?.scrollTo({ x: zoomIndex * ITEM_W, animated: false });
+      const fIdx = filters.findIndex((f) => f.id === filter);
+      filterRef.current?.scrollTo({ x: Math.max(0, fIdx) * ITEM_W, animated: false });
+    });
+  }, []);
 
   if (!permission) {
     return <View style={styles.fill} />;
@@ -112,49 +124,54 @@ export default function CameraScreen() {
 
       {/* Bottom controls */}
       <View style={styles.bottomBar}>
-        {/* Zoom slider (snap, fade by distance) */}
-        <ScrollView
+        {/* Zoom slider (snap to center, slide-to-select) */}
+        <Animated.ScrollView
+          ref={zoomRef}
           horizontal
           showsHorizontalScrollIndicator={false}
           snapToInterval={ITEM_W}
           decelerationRate="fast"
-          contentContainerStyle={{ paddingHorizontal: 24 }}
+          contentContainerStyle={{ paddingLeft: SIDE_PAD, paddingRight: SIDE_PAD }}
+          scrollEventThrottle={16}
+          onScroll={Animated.event(
+            [{ nativeEvent: { contentOffset: { x: zoomX } } }],
+            { useNativeDriver: true }
+          )}
           onMomentumScrollEnd={(e: NativeSyntheticEvent<NativeScrollEvent>) => {
             const x = e.nativeEvent.contentOffset.x;
             const idx = Math.round(x / ITEM_W);
             const clamped = Math.max(0, Math.min(zoomSteps.length - 1, idx));
             setZoomIndex(clamped);
             const step = zoomSteps[clamped];
-            // map to camera zoom 0..1 approx
             setZoom(step === 0.5 ? 0.0 : step === 1 ? 0.2 : step === 2 ? 0.5 : 0.85);
           }}
         >
           {zoomSteps.map((step, idx) => {
-            const dist = Math.abs(idx - zoomIndex);
-            const active = idx === zoomIndex;
             const label = step === 1 ? '1x' : step.toString();
+            const inputRange = [(idx - 1) * ITEM_W, idx * ITEM_W, (idx + 1) * ITEM_W];
+            const opacity = zoomX.interpolate({ inputRange, outputRange: [0.4, 1, 0.4], extrapolate: 'clamp' });
+            const scale = zoomX.interpolate({ inputRange, outputRange: [0.95, 1, 0.95], extrapolate: 'clamp' });
             return (
-              <Pressable
-                key={label}
-                style={[styles.sliderItem, { width: ITEM_W, transform: [{ scale: getScaleForDistance(dist) }], opacity: getOpacityForDistance(dist) }]}
-                onPress={() => {
-                  setZoomIndex(idx);
-                  setZoom(step === 0.5 ? 0.0 : step === 1 ? 0.2 : step === 2 ? 0.5 : 0.85);
-                }}
-              >
-                <Text style={[styles.sliderText, active && styles.sliderTextActive]}>{label}</Text>
-              </Pressable>
+              <Animated.View key={label} style={[styles.sliderItem, { width: ITEM_W, opacity, transform: [{ scale }] }]}>
+                <Text style={[styles.sliderText, idx === zoomIndex && styles.sliderTextActive]}>{label}</Text>
+              </Animated.View>
             );
           })}
-        </ScrollView>
+        </Animated.ScrollView>
 
-        {/* Filter slider (snap, fade by distance) */}
-        <ScrollView
+        {/* Filter slider (snap to center, slide-to-select) */}
+        <Animated.ScrollView
+          ref={filterRef}
           horizontal
           showsHorizontalScrollIndicator={false}
           snapToInterval={ITEM_W}
           decelerationRate="fast"
-          contentContainerStyle={{ paddingHorizontal: 24 }}
+          contentContainerStyle={{ paddingLeft: SIDE_PAD, paddingRight: SIDE_PAD }}
+          scrollEventThrottle={16}
+          onScroll={Animated.event(
+            [{ nativeEvent: { contentOffset: { x: filterX } } }],
+            { useNativeDriver: true }
+          )}
           onMomentumScrollEnd={(e: NativeSyntheticEvent<NativeScrollEvent>) => {
             const x = e.nativeEvent.contentOffset.x;
             const idx = Math.round(x / ITEM_W);
@@ -163,20 +180,16 @@ export default function CameraScreen() {
           }}
         >
           {filters.map((f, idx) => {
-            const currentIndex = filters.findIndex((ff) => ff.id === filter);
-            const dist = Math.abs(idx - currentIndex);
-            const active = f.id === filter;
+            const inputRange = [(idx - 1) * ITEM_W, idx * ITEM_W, (idx + 1) * ITEM_W];
+            const opacity = filterX.interpolate({ inputRange, outputRange: [0.4, 1, 0.4], extrapolate: 'clamp' });
+            const scale = filterX.interpolate({ inputRange, outputRange: [0.95, 1, 0.95], extrapolate: 'clamp' });
             return (
-              <Pressable
-                key={f.id}
-                style={[styles.sliderItem, { width: ITEM_W, transform: [{ scale: getScaleForDistance(dist) }], opacity: getOpacityForDistance(dist) }]}
-                onPress={() => setFilter(f.id)}
-              >
-                <Text style={[styles.sliderText, active && styles.sliderTextActive]}>{f.label}</Text>
-              </Pressable>
+              <Animated.View key={f.id} style={[styles.sliderItem, { width: ITEM_W, opacity, transform: [{ scale }] }]}>
+                <Text style={[styles.sliderText, f.id === filter && styles.sliderTextActive]}>{f.label}</Text>
+              </Animated.View>
             );
           })}
-        </ScrollView>
+        </Animated.ScrollView>
 
         <View style={styles.shutterRow}>
           {/* Left: Library */}
