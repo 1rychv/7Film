@@ -1,9 +1,9 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { View, Text, Pressable, StyleSheet, LayoutChangeEvent } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { GLView } from 'expo-gl';
-import { Renderer, loadAsync as loadTextureAsync } from 'expo-three';
 import * as THREE from 'three';
+import { Asset } from 'expo-asset';
 
 export default function Develop() {
   const router = useRouter();
@@ -41,7 +41,17 @@ export default function Develop() {
           <GLView
             style={styles.surface}
             onContextCreate={async (gl) => {
-              const renderer = new Renderer({ gl });
+              const renderer = new THREE.WebGLRenderer({
+                context: gl as unknown as WebGLRenderingContext,
+                canvas: {
+                  width: gl.drawingBufferWidth,
+                  height: gl.drawingBufferHeight,
+                  style: {},
+                  addEventListener: () => {},
+                  removeEventListener: () => {},
+                  clientHeight: gl.drawingBufferHeight,
+                } as any,
+              } as any);
               renderer.setSize(layout.w || gl.drawingBufferWidth, layout.h || gl.drawingBufferHeight);
               glRef.current = renderer;
 
@@ -55,7 +65,16 @@ export default function Develop() {
               // Load texture
               let texture: THREE.Texture;
               try {
-                texture = await loadTextureAsync({ asset: { uri: decodeURIComponent(String(uri)) } as any });
+                const decUri = decodeURIComponent(String(uri));
+                const asset = Asset.fromURI(decUri);
+                await asset.downloadAsync();
+                const width = asset.width ?? gl.drawingBufferWidth;
+                const height = asset.height ?? gl.drawingBufferHeight;
+                texture = new THREE.Texture();
+                // RN/Expo hack: pass the Asset as `data` with dimensions and mark as DataTexture
+                (texture as any).image = { data: asset, width, height };
+                (texture as any).isDataTexture = true;
+                texture.needsUpdate = true;
                 texture.minFilter = THREE.LinearFilter;
                 texture.magFilter = THREE.LinearFilter;
                 texture.wrapS = THREE.ClampToEdgeWrapping;
@@ -69,7 +88,7 @@ export default function Develop() {
               const material = new THREE.ShaderMaterial({
                 uniforms: {
                   t: { value: texture },
-                  uTexel: { value: new THREE.Vector2(1 / (texture.image?.width || 1024), 1 / (texture.image?.height || 1024)) },
+                  uTexel: { value: new THREE.Vector2(1 / ((texture as any).image?.width || 1024), 1 / ((texture as any).image?.height || 1024)) },
                   uThreshold: { value: threshold },
                   uKnee: { value: knee },
                   uRadius: { value: radius },
@@ -134,6 +153,7 @@ export default function Develop() {
                   materialRef.current.uniforms.uStrength.value = strength;
                 }
                 renderer.render(scene, camera);
+                // @ts-ignore: expo-gl specific
                 gl.endFrameEXP();
                 rafRef.current = requestAnimationFrame(render);
               };
