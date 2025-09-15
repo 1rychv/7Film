@@ -1,18 +1,22 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { StyleSheet, View, Text, Pressable, Image } from 'react-native';
+import { StyleSheet, View, Text, Pressable, Image, ScrollView } from 'react-native';
 import { CameraView, useCameraPermissions, CameraType, FlashMode } from 'expo-camera';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { Colors } from '@/constants/theme';
+import { useRouter } from 'expo-router';
+import { IconSymbol } from '@/components/ui/icon-symbol';
 
 type FilterId = 'none' | 'portra' | 'tri-x' | 'kodachrome';
 
 export default function CameraScreen() {
+  const router = useRouter();
   const [permission, requestPermission] = useCameraPermissions();
   const [facing, setFacing] = useState<CameraType>('back');
-  const [flash, setFlash] = useState<FlashMode>('off');
+  const [flash, setFlash] = useState<FlashMode>('auto');
   const [filter, setFilter] = useState<FilterId>('none');
   const [previewUri, setPreviewUri] = useState<string | null>(null);
+  const [zoom, setZoom] = useState(0);
 
   const cameraRef = useRef<CameraView>(null);
 
@@ -85,29 +89,42 @@ export default function CameraScreen() {
         facing={facing}
         flash={flash}
         enableTorch={flash === 'torch'}
+        zoom={zoom}
         animateShutter
       />
-      {filter !== 'none' && <FilterOverlay filter={filter} />}
+      {filter !== 'none' && <FilterOverlay filter={filter} />}    
 
-      {/* Top controls */}
-      <View style={styles.topBar}>
-        <Pressable
-          style={styles.round}
-          onPress={() => setFlash((f) => (f === 'off' ? 'on' : f === 'on' ? 'torch' : 'off'))}
-        >
-          <Text style={styles.roundText}>
-            {flash === 'off' ? '⚡︎ Off' : flash === 'on' ? '⚡︎ On' : '🔦 Torch'}
-          </Text>
-        </Pressable>
-
-        <Pressable style={styles.round} onPress={() => setFacing((f) => (f === 'back' ? 'front' : 'back'))}>
-          <Text style={styles.roundText}>↺ Flip</Text>
-        </Pressable>
+      {/* Center framing marker */}
+      <View pointerEvents="none" style={styles.centerMarkerWrap}>
+        <View style={styles.centerMarker} />
       </View>
 
       {/* Bottom controls */}
       <View style={styles.bottomBar}>
-        <View style={styles.filters}>
+        {/* Lens selector pill */}
+        <View style={styles.lensPill}>
+          {['0.5', '1x', '2x', '3x'].map((label, idx) => {
+            const selected = (idx === 1 && zoom < 0.3) || (idx === 0 && zoom < 0.05) || (idx === 2 && zoom >= 0.3 && zoom < 0.7) || (idx === 3 && zoom >= 0.7);
+            return (
+              <Pressable
+                key={label}
+                style={[styles.lensItem, selected && styles.lensItemActive]}
+                onPress={() => {
+                  // approximate zoom ranges; real optical lenses differ per device
+                  if (label === '0.5') setZoom(0.0);
+                  if (label === '1x') setZoom(0.2);
+                  if (label === '2x') setZoom(0.5);
+                  if (label === '3x') setZoom(0.85);
+                }}
+              >
+                <Text style={[styles.lensText, selected && styles.lensTextActive]}>{label}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        {/* Preset chips */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filters}>
           {filters.map((f) => (
             <Pressable
               key={f.id}
@@ -117,24 +134,47 @@ export default function CameraScreen() {
               <Text style={[styles.chipText, filter === f.id && styles.chipTextActive]}>{f.label}</Text>
             </Pressable>
           ))}
+        </ScrollView>
+
+        <View style={styles.shutterRow}>
+          {/* Left: Library */}
+          <Pressable style={styles.circleBtn} onPress={() => router.push('/library')}>
+            <IconSymbol name="square.stack" size={22} color="#fff" />
+          </Pressable>
+
+          {/* Shutter */}
+          <Pressable
+            onPress={async () => {
+              try {
+                const photo = await cameraRef.current?.takePictureAsync({
+                  quality: 1,
+                  skipProcessing: false,
+                });
+                if (photo?.uri) setPreviewUri(photo.uri);
+              } catch (e) {
+                console.warn('Failed to take picture', e);
+              }
+            }}
+            style={styles.shutterOuter}
+          >
+            <View style={styles.shutterInner} />
+          </Pressable>
+
+          {/* Right: Presets panel (for now keep as placeholder action) */}
+          <Pressable style={styles.circleBtn} onPress={() => {/* Future: open presets drawer */}}>
+            <IconSymbol name="wand.and.stars" size={22} color="#fff" />
+          </Pressable>
         </View>
 
-        <Pressable
-          onPress={async () => {
-            try {
-              const photo = await cameraRef.current?.takePictureAsync({
-                quality: 1,
-                skipProcessing: false,
-              });
-              if (photo?.uri) setPreviewUri(photo.uri);
-            } catch (e) {
-              console.warn('Failed to take picture', e);
-            }
-          }}
-          style={styles.shutterOuter}
-        >
-          <View style={styles.shutterInner} />
-        </Pressable>
+        {/* Flash control bubble */}
+        <View style={styles.flashWrap}>
+          <Pressable
+            style={styles.round}
+            onPress={() => setFlash((f) => (f === 'auto' ? 'on' : f === 'on' ? 'off' : 'auto'))}
+          >
+            <Text style={styles.roundText}>{flash === 'auto' ? '⚡︎ A' : flash === 'on' ? '⚡︎ On' : '⚡︎ Off'}</Text>
+          </Pressable>
+        </View>
       </View>
     </View>
   );
@@ -172,28 +212,16 @@ const styles = StyleSheet.create({
     borderColor: '#fff',
   },
   hollowText: { color: '#fff' },
-  topBar: {
-    position: 'absolute',
-    top: 24,
-    left: 16,
-    right: 16,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
+  // No top bar per spec
   bottomBar: {
     position: 'absolute',
     left: 0,
     right: 0,
     bottom: 24,
     alignItems: 'center',
-    gap: 16,
+    gap: 14,
   },
-  filters: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 8,
-  },
+  filters: { paddingHorizontal: 16, gap: 8 },
   chip: {
     paddingHorizontal: 10,
     paddingVertical: 6,
@@ -208,6 +236,13 @@ const styles = StyleSheet.create({
   },
   chipText: { color: '#fff', fontWeight: '600' },
   chipTextActive: { color: '#000' },
+  shutterRow: {
+    width: '100%',
+    paddingHorizontal: 24,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
   shutterOuter: {
     width: 80,
     height: 80,
@@ -222,6 +257,16 @@ const styles = StyleSheet.create({
     height: 58,
     borderRadius: 29,
     backgroundColor: '#fff',
+  },
+  circleBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   round: {
     paddingHorizontal: 12,
@@ -244,5 +289,47 @@ const styles = StyleSheet.create({
     bottom: 24,
     flexDirection: 'row',
     justifyContent: 'space-between',
+  },
+  centerMarkerWrap: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  centerMarker: {
+    width: 64,
+    height: 140,
+    borderRadius: 16,
+    borderWidth: 3,
+    borderColor: '#FF8A00', // orange
+    opacity: 0.75,
+    shadowColor: '#FF8A00',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.8,
+    shadowRadius: 12,
+  },
+  lensPill: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    padding: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.18)',
+  },
+  lensItem: {
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 999,
+  },
+  lensItemActive: { backgroundColor: '#2ED1C4' }, // teal accent
+  lensText: { color: '#fff', fontWeight: '700' },
+  lensTextActive: { color: '#000' },
+  flashWrap: {
+    position: 'absolute',
+    right: 16,
+    bottom: 24 + 80 + 16, // above shutter row
   },
 });

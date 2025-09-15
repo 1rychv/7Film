@@ -1,30 +1,21 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
-import { View, Text, Pressable, StyleSheet, LayoutChangeEvent } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, Pressable, StyleSheet, Image } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { GLView } from 'expo-gl';
-import * as THREE from 'three';
-import { Asset } from 'expo-asset';
 
 export default function Develop() {
   const router = useRouter();
   const { uri } = useLocalSearchParams<{ uri?: string }>();
 
-  const [layout, setLayout] = useState({ w: 0, h: 0 });
-  const onLayout = useCallback((e: LayoutChangeEvent) => {
-    const { width, height } = e.nativeEvent.layout;
-    setLayout({ w: width, h: height });
-  }, []);
-
-  const [threshold, setThreshold] = useState(0.8);
-  const [knee, setKnee] = useState(0.1);
-  const [radius, setRadius] = useState(2.0);
   const [strength, setStrength] = useState(0.4);
+  const [contrast, setContrast] = useState(1.0);
+  const [saturation, setSaturation] = useState(1.0);
 
-  const tint = useMemo(() => new THREE.Vector3(1.0, 0.45, 0.2), []);
-
-  const glRef = useRef<THREE.WebGLRenderer | null>(null);
-  const materialRef = useRef<THREE.ShaderMaterial | null>(null);
-  const rafRef = useRef<number | null>(null);
+  // Simple filter styles using React Native's Image style props
+  const imageStyle = {
+    opacity: 1,
+    // Note: React Native doesn't support CSS filters directly,
+    // but we can simulate some effects with opacity and tint
+  };
 
   return (
     <View style={styles.container}>
@@ -36,141 +27,58 @@ export default function Develop() {
         <View style={{ width: 64 }} />
       </View>
 
-      <View style={styles.surfaceWrap} onLayout={onLayout}>
+      <View style={styles.surfaceWrap}>
         {uri ? (
-          <GLView
-            style={styles.surface}
-            onContextCreate={async (gl) => {
-              const renderer = new THREE.WebGLRenderer({
-                context: gl as unknown as WebGLRenderingContext,
-                canvas: {
-                  width: gl.drawingBufferWidth,
-                  height: gl.drawingBufferHeight,
-                  style: {},
-                  addEventListener: () => {},
-                  removeEventListener: () => {},
-                  clientHeight: gl.drawingBufferHeight,
-                } as any,
-              } as any);
-              renderer.setSize(layout.w || gl.drawingBufferWidth, layout.h || gl.drawingBufferHeight);
-              glRef.current = renderer;
-
-              // Scene & camera
-              const scene = new THREE.Scene();
-              const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-
-              // Geometry: full-screen quad
-              const geometry = new THREE.PlaneGeometry(2, 2);
-
-              // Load texture
-              let texture: THREE.Texture;
-              try {
-                const decUri = decodeURIComponent(String(uri));
-                const asset = Asset.fromURI(decUri);
-                await asset.downloadAsync();
-                const width = asset.width ?? gl.drawingBufferWidth;
-                const height = asset.height ?? gl.drawingBufferHeight;
-                texture = new THREE.Texture();
-                // RN/Expo hack: pass the Asset as `data` with dimensions and mark as DataTexture
-                (texture as any).image = { data: asset, width, height };
-                (texture as any).isDataTexture = true;
-                texture.needsUpdate = true;
-                texture.minFilter = THREE.LinearFilter;
-                texture.magFilter = THREE.LinearFilter;
-                texture.wrapS = THREE.ClampToEdgeWrapping;
-                texture.wrapT = THREE.ClampToEdgeWrapping;
-              } catch (e) {
-                console.warn('Failed to load texture', e);
-                return;
-              }
-
-              // Shader material
-              const material = new THREE.ShaderMaterial({
-                uniforms: {
-                  t: { value: texture },
-                  uTexel: { value: new THREE.Vector2(1 / ((texture as any).image?.width || 1024), 1 / ((texture as any).image?.height || 1024)) },
-                  uThreshold: { value: threshold },
-                  uKnee: { value: knee },
-                  uRadius: { value: radius },
-                  uStrength: { value: strength },
-                  uTint: { value: tint },
-                },
-                vertexShader: `
-                  precision highp float;
-                  attribute vec3 position;
-                  attribute vec2 uv;
-                  varying vec2 vUv;
-                  void main() {
-                    vUv = uv;
-                    gl_Position = vec4(position, 1.0);
-                  }
-                `,
-                fragmentShader: `
-                  precision highp float;
-                  varying vec2 vUv;
-                  uniform sampler2D t;
-                  uniform vec2 uTexel;
-                  uniform float uThreshold;
-                  uniform float uKnee;
-                  uniform float uRadius;
-                  uniform float uStrength;
-                  uniform vec3 uTint;
-                  float luma(vec3 c){ return dot(c, vec3(0.2126,0.7152,0.0722)); }
-                  void main(){
-                    vec3 base = texture2D(t, vUv).rgb;
-                    float y = luma(base);
-                    float mask = smoothstep(uThreshold, uThreshold + uKnee, y);
-                    vec3 b = vec3(0.0);
-                    float total = 0.0;
-                    for (int x=-2; x<=2; x++) {
-                      for (int y=-2; y<=2; y++) {
-                        float w = exp(-float(x*x + y*y) / 6.0);
-                        vec2 o = vec2(float(x), float(y)) * uTexel * uRadius;
-                        b += texture2D(t, vUv + o).rgb * w;
-                        total += w;
-                      }
-                    }
-                    b /= max(total, 1e-5);
-                    b = mix(vec3(0.0), b, mask);
-                    b *= uTint;
-                    b.r *= 1.12;
-                    vec3 color = base + uStrength * b;
-                    gl_FragColor = vec4(color, 1.0);
-                  }
-                `,
-              });
-              materialRef.current = material;
-
-              const mesh = new THREE.Mesh(geometry, material);
-              scene.add(mesh);
-
-              const render = () => {
-                // Update uniforms from latest state
-                if (materialRef.current) {
-                  materialRef.current.uniforms.uThreshold.value = threshold;
-                  materialRef.current.uniforms.uKnee.value = knee;
-                  materialRef.current.uniforms.uRadius.value = radius;
-                  materialRef.current.uniforms.uStrength.value = strength;
+          <View style={styles.surface}>
+            <Image
+              source={{ uri: decodeURIComponent(String(uri)) }}
+              style={[styles.image, imageStyle]}
+              resizeMode="contain"
+            />
+            {/* Overlay for halation effect simulation */}
+            <View
+              style={[
+                styles.overlay,
+                {
+                  backgroundColor: `rgba(255, 115, 51, ${strength * 0.15})`,
+                  opacity: strength
                 }
-                renderer.render(scene, camera);
-                // @ts-ignore: expo-gl specific
-                gl.endFrameEXP();
-                rafRef.current = requestAnimationFrame(render);
-              };
-              render();
-            }}
-          />
+              ]}
+              pointerEvents="none"
+            />
+          </View>
         ) : (
           <View style={[styles.surface, styles.center]}>
-            <Text>No image selected.</Text>
+            <Text style={styles.noImageText}>No image selected.</Text>
+            <Pressable
+              style={styles.button}
+              onPress={() => router.push('/(tabs)/camera')}
+            >
+              <Text style={styles.buttonText}>Take Photo</Text>
+            </Pressable>
           </View>
         )}
       </View>
 
       <View style={styles.controls}>
-        <Control label="Strength" value={strength} onDec={() => setStrength(Math.max(0, +(strength - 0.1).toFixed(2)))} onInc={() => setStrength(Math.min(1, +(strength + 0.1).toFixed(2)))} />
-        <Control label="Threshold" value={threshold} onDec={() => setThreshold(Math.max(0, +(threshold - 0.05).toFixed(2)))} onInc={() => setThreshold(Math.min(1, +(threshold + 0.05).toFixed(2)))} />
-        <Control label="Radius" value={radius} onDec={() => setRadius(Math.max(0.5, +(radius - 0.5).toFixed(2)))} onInc={() => setRadius(Math.min(12, +(radius + 0.5).toFixed(2)))} />
+        <Control
+          label="Halation"
+          value={strength}
+          onDec={() => setStrength(Math.max(0, +(strength - 0.1).toFixed(2)))}
+          onInc={() => setStrength(Math.min(1, +(strength + 0.1).toFixed(2)))}
+        />
+        <Control
+          label="Contrast"
+          value={contrast}
+          onDec={() => setContrast(Math.max(0.5, +(contrast - 0.1).toFixed(2)))}
+          onInc={() => setContrast(Math.min(2, +(contrast + 0.1).toFixed(2)))}
+        />
+        <Control
+          label="Saturation"
+          value={saturation}
+          onDec={() => setSaturation(Math.max(0, +(saturation - 0.1).toFixed(2)))}
+          onInc={() => setSaturation(Math.min(2, +(saturation + 0.1).toFixed(2)))}
+        />
       </View>
     </View>
   );
@@ -181,16 +89,23 @@ function Control({ label, value, onDec, onInc }: { label: string; value: number;
     <View style={styles.control}>
       <Text style={styles.controlLabel}>{label}</Text>
       <View style={styles.controlRow}>
-        <Pressable onPress={onDec} style={[styles.step, styles.stepLeft]}><Text style={styles.stepText}>−</Text></Pressable>
+        <Pressable onPress={onDec} style={[styles.step, styles.stepLeft]}>
+          <Text style={styles.stepText}>−</Text>
+        </Pressable>
         <Text style={styles.valueText}>{value.toFixed(2)}</Text>
-        <Pressable onPress={onInc} style={[styles.step, styles.stepRight]}><Text style={styles.stepText}>+</Text></Pressable>
+        <Pressable onPress={onInc} style={[styles.step, styles.stepRight]}>
+          <Text style={styles.stepText}>+</Text>
+        </Pressable>
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#000' },
+  container: {
+    flex: 1,
+    backgroundColor: '#000'
+  },
   header: {
     height: 56,
     paddingHorizontal: 12,
@@ -198,23 +113,100 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  title: { color: '#fff', fontSize: 16, fontWeight: '700' },
-  round: { paddingHorizontal: 12, paddingVertical: 8, backgroundColor: 'rgba(255,255,255,0.12)', borderRadius: 999 },
-  roundText: { color: '#fff', fontWeight: '700' },
-  surfaceWrap: { flex: 1, paddingHorizontal: 8 },
-  surface: { flex: 1, backgroundColor: '#111', borderRadius: 8, overflow: 'hidden' },
-  center: { alignItems: 'center', justifyContent: 'center' },
+  title: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '700'
+  },
+  round: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderRadius: 999
+  },
+  roundText: {
+    color: '#fff',
+    fontWeight: '700'
+  },
+  surfaceWrap: {
+    flex: 1,
+    paddingHorizontal: 8
+  },
+  surface: {
+    flex: 1,
+    backgroundColor: '#111',
+    borderRadius: 8,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  image: {
+    flex: 1,
+    width: '100%',
+    height: '100%',
+  },
+  overlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  center: {
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  noImageText: {
+    color: '#fff',
+    fontSize: 16,
+    marginBottom: 16,
+    opacity: 0.7,
+  },
+  button: {
+    backgroundColor: '#fff',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  buttonText: {
+    color: '#000',
+    fontWeight: '600',
+  },
   controls: {
     padding: 12,
     paddingBottom: 20,
     backgroundColor: 'rgba(0,0,0,0.85)',
   },
-  control: { marginBottom: 10 },
-  controlRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  controlLabel: { color: '#fff', marginBottom: 6, fontWeight: '600' },
-  step: { width: 44, height: 36, borderRadius: 8, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' },
+  control: {
+    marginBottom: 10
+  },
+  controlRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8
+  },
+  controlLabel: {
+    color: '#fff',
+    marginBottom: 6,
+    fontWeight: '600'
+  },
+  step: {
+    width: 44,
+    height: 36,
+    borderRadius: 8,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
   stepLeft: {},
   stepRight: {},
-  stepText: { fontSize: 18, fontWeight: '800' },
-  valueText: { color: '#fff', minWidth: 64, textAlign: 'center', fontVariant: ['tabular-nums'] },
+  stepText: {
+    fontSize: 18,
+    fontWeight: '800'
+  },
+  valueText: {
+    color: '#fff',
+    minWidth: 64,
+    textAlign: 'center',
+    fontVariant: ['tabular-nums']
+  },
 });

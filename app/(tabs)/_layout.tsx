@@ -16,6 +16,8 @@ export default function TabLayout() {
         tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
         headerShown: false,
         tabBarButton: HapticTab,
+        // Hide the tab bar to create a single-screen camera experience
+        tabBarStyle: { display: 'none' },
       }}>
       <Tabs.Screen
         name="camera"
