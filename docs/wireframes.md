@@ -77,6 +77,7 @@ Route: `/develop/[id]`
 | Intensity:  ─────●────                           |
 | Grain:      ───●─────                            |
 | Vignette:   ─●──────                             |
+| Halation:   ──●─────                             |
 | WB:         [Auto] [K]  5200K  (slider)          |
 | Curves:     [Open Panel ▸]                       |
 +--------------------------------------------------+
@@ -118,6 +119,7 @@ Route: `/settings`
 | Develop                                             
 |  - Default Look: [None ▾]                           |
 |  - Grain Strength:  ──●────                         |
+|  - Halation Strength:  ──●────                      |
 |  - Save Originals: [On]                             |
 | Library                                             
 |  - Auto-save to Camera Roll: [On]                   |
@@ -161,4 +163,3 @@ Route: `/share/[id]` (modal)
 - Tabs: `/(tabs)/camera`, `/(tabs)/library`, `/(tabs)/presets`
 - Stacks: `/develop/[id]`, `/photo/[id]`, `/settings`, `/onboarding`, `/share/[id]`
 - Default route: redirect `/` → `/(tabs)/camera`
-
