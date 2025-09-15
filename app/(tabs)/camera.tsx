@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, View, Text, Pressable, Image, NativeSyntheticEvent, NativeScrollEvent, useWindowDimensions, Animated } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CameraView, useCameraPermissions, CameraType, FlashMode } from 'expo-camera';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
@@ -12,6 +13,7 @@ type FilterId = 'none' | 'portra' | 'tri-x' | 'kodachrome';
 
 export default function CameraScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [permission, requestPermission] = useCameraPermissions();
   const [facing, setFacing] = useState<CameraType>('back');
   const [flash, setFlash] = useState<FlashMode>('auto');
@@ -105,6 +107,8 @@ export default function CameraScreen() {
 
   return (
     <View style={styles.container}>
+      {/* Black buffer between status bar and viewfinder */}
+      <View style={{ height: insets.top + 12 }} />
       <View style={styles.cameraBox}>
         <CameraView
           ref={cameraRef}
