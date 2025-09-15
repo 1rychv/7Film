@@ -57,11 +57,20 @@ export default function CameraScreen() {
           <Pressable
             style={styles.button}
             onPress={() => {
-              // TODO: Save to library and apply filter processing to the file
-              setPreviewUri(null);
+              // Navigate to Develop screen with the captured URI
+              const href = `/(develop)?uri=${encodeURIComponent(previewUri)}`;
+              // expo-router supports string hrefs via imperative navigation, but we can also defer
+              // For simplicity, set a global location by using the router link in UI. Here we fallback to dynamic import
+              // We'll use an inline dynamic to avoid adding a direct dependency at top-level.
+              try {
+                // @ts-ignore
+                require('expo-router').router.push({ pathname: '/develop', params: { uri: previewUri } });
+              } catch (e) {
+                console.warn('Failed to navigate to develop, ensure expo-router is available', e);
+              }
             }}
           >
-            <Text style={styles.buttonText}>Use Photo</Text>
+            <Text style={styles.buttonText}>Edit</Text>
           </Pressable>
         </View>
       </View>
@@ -237,4 +246,3 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
 });
-
