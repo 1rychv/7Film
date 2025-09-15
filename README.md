@@ -34,7 +34,7 @@ Install native modules:
 ```bash
 npx expo install expo-camera
 npx expo install expo-gl expo-asset
-npm i gl-react gl-react-expo
+npm i expo-three three
 ```
 
 Then run the app and grant camera permission when prompted:
@@ -46,7 +46,7 @@ npx expo start
 Notes:
 
 - iOS permission text is configured in `app.json`.
-- Captured photos show a simple overlay to preview “film” looks. The Develop screen (`app/develop.tsx`) uses GL (gl-react + expo-gl) to preview halation with simple step controls.
+- Captured photos show a simple overlay to preview “film” looks. The Develop screen (`app/develop.tsx`) uses GL (expo-gl + expo-three) to preview halation with simple step controls.
 
 ## Get a fresh project
 

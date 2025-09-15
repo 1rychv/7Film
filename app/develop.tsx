@@ -1,54 +1,9 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
-import { View, Text, Pressable, StyleSheet, LayoutChangeEvent, Image as RNImage, Platform } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { View, Text, Pressable, StyleSheet, LayoutChangeEvent } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Surface } from 'gl-react-expo';
-import { GLSL, Node, Shaders } from 'gl-react';
-import { Colors } from '@/constants/theme';
-
-const shaders = Shaders.create({
-  halation: {
-    frag: GLSL`
-precision highp float;
-varying vec2 uv;
-uniform sampler2D t;           // input image
-uniform vec2 uTexel;           // 1.0 / viewport size
-uniform float uThreshold;      // 0..1
-uniform float uKnee;           // 0..1 small
-uniform float uRadius;         // pixel radius scale
-uniform float uStrength;       // 0..1
-uniform vec3  uTint;           // warm tint
-
-float luma(vec3 c){ return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
-
-void main(){
-  vec3 base = texture2D(t, uv).rgb;
-  float y = luma(base);
-  float mask = smoothstep(uThreshold, uThreshold + uKnee, y);
-
-  // simple 9-tap blur (separable would be better, this is a preview)
-  vec3 b = vec3(0.0);
-  float total = 0.0;
-  for (int x=-2; x<=2; x++) {
-    for (int y=-2; y<=2; y++) {
-      float w = exp(-float(x*x + y*y) / 6.0);
-      vec2 o = vec2(float(x), float(y)) * uTexel * uRadius;
-      b += texture2D(t, uv + o).rgb * w;
-      total += w;
-    }
-  }
-  b /= max(total, 1e-5);
-
-  // keep highlights only & tint warm, slight red bias
-  b = mix(vec3(0.0), b, mask);
-  b *= uTint;
-  b.r *= 1.12;
-
-  vec3 color = base + uStrength * b;
-  gl_FragColor = vec4(color, 1.0);
-}
-`
-  }
-});
+import { GLView } from 'expo-gl';
+import { Renderer, loadAsync as loadTextureAsync } from 'expo-three';
+import * as THREE from 'three';
 
 export default function Develop() {
   const router = useRouter();
@@ -65,11 +20,11 @@ export default function Develop() {
   const [radius, setRadius] = useState(2.0);
   const [strength, setStrength] = useState(0.4);
 
-  const uTexel = useMemo(() => (
-    layout.w > 0 && layout.h > 0 ? [1 / layout.w, 1 / layout.h] as [number, number] : [1 / 1000, 1 / 1000]
-  ), [layout]);
+  const tint = useMemo(() => new THREE.Vector3(1.0, 0.45, 0.2), []);
 
-  const tint = [1.0, 0.45, 0.2] as [number, number, number];
+  const glRef = useRef<THREE.WebGLRenderer | null>(null);
+  const materialRef = useRef<THREE.ShaderMaterial | null>(null);
+  const rafRef = useRef<number | null>(null);
 
   return (
     <View style={styles.container}>
@@ -83,22 +38,108 @@ export default function Develop() {
 
       <View style={styles.surfaceWrap} onLayout={onLayout}>
         {uri ? (
-          <Surface style={styles.surface}>
-            {/* gl-react maps the first child to sampler2D uniform `t` */}
-            <Node
-              shader={shaders.halation}
-              uniforms={{
-                uThreshold: threshold,
-                uKnee: knee,
-                uRadius: radius,
-                uStrength: strength,
-                uTint: tint,
-                uTexel,
-              }}
-            >
-              <RNImage source={{ uri: decodeURIComponent(uri) }} resizeMode="contain" style={styles.img} />
-            </Node>
-          </Surface>
+          <GLView
+            style={styles.surface}
+            onContextCreate={async (gl) => {
+              const renderer = new Renderer({ gl });
+              renderer.setSize(layout.w || gl.drawingBufferWidth, layout.h || gl.drawingBufferHeight);
+              glRef.current = renderer;
+
+              // Scene & camera
+              const scene = new THREE.Scene();
+              const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+
+              // Geometry: full-screen quad
+              const geometry = new THREE.PlaneGeometry(2, 2);
+
+              // Load texture
+              let texture: THREE.Texture;
+              try {
+                texture = await loadTextureAsync({ asset: { uri: decodeURIComponent(String(uri)) } as any });
+                texture.minFilter = THREE.LinearFilter;
+                texture.magFilter = THREE.LinearFilter;
+                texture.wrapS = THREE.ClampToEdgeWrapping;
+                texture.wrapT = THREE.ClampToEdgeWrapping;
+              } catch (e) {
+                console.warn('Failed to load texture', e);
+                return;
+              }
+
+              // Shader material
+              const material = new THREE.ShaderMaterial({
+                uniforms: {
+                  t: { value: texture },
+                  uTexel: { value: new THREE.Vector2(1 / (texture.image?.width || 1024), 1 / (texture.image?.height || 1024)) },
+                  uThreshold: { value: threshold },
+                  uKnee: { value: knee },
+                  uRadius: { value: radius },
+                  uStrength: { value: strength },
+                  uTint: { value: tint },
+                },
+                vertexShader: `
+                  precision highp float;
+                  attribute vec3 position;
+                  attribute vec2 uv;
+                  varying vec2 vUv;
+                  void main() {
+                    vUv = uv;
+                    gl_Position = vec4(position, 1.0);
+                  }
+                `,
+                fragmentShader: `
+                  precision highp float;
+                  varying vec2 vUv;
+                  uniform sampler2D t;
+                  uniform vec2 uTexel;
+                  uniform float uThreshold;
+                  uniform float uKnee;
+                  uniform float uRadius;
+                  uniform float uStrength;
+                  uniform vec3 uTint;
+                  float luma(vec3 c){ return dot(c, vec3(0.2126,0.7152,0.0722)); }
+                  void main(){
+                    vec3 base = texture2D(t, vUv).rgb;
+                    float y = luma(base);
+                    float mask = smoothstep(uThreshold, uThreshold + uKnee, y);
+                    vec3 b = vec3(0.0);
+                    float total = 0.0;
+                    for (int x=-2; x<=2; x++) {
+                      for (int y=-2; y<=2; y++) {
+                        float w = exp(-float(x*x + y*y) / 6.0);
+                        vec2 o = vec2(float(x), float(y)) * uTexel * uRadius;
+                        b += texture2D(t, vUv + o).rgb * w;
+                        total += w;
+                      }
+                    }
+                    b /= max(total, 1e-5);
+                    b = mix(vec3(0.0), b, mask);
+                    b *= uTint;
+                    b.r *= 1.12;
+                    vec3 color = base + uStrength * b;
+                    gl_FragColor = vec4(color, 1.0);
+                  }
+                `,
+              });
+              materialRef.current = material;
+
+              const mesh = new THREE.Mesh(geometry, material);
+              scene.add(mesh);
+
+              const render = () => {
+                // Update uniforms from latest state
+                if (materialRef.current) {
+                  materialRef.current.uniforms.uThreshold.value = threshold;
+                  materialRef.current.uniforms.uKnee.value = knee;
+                  materialRef.current.uniforms.uRadius.value = radius;
+                  materialRef.current.uniforms.uStrength.value = strength;
+                }
+                renderer.render(scene, camera);
+                gl.endFrameEXP();
+                rafRef.current = requestAnimationFrame(render);
+              };
+              render();
+            }}
+          />
         ) : (
           <View style={[styles.surface, styles.center]}>
             <Text>No image selected.</Text>
@@ -142,7 +183,6 @@ const styles = StyleSheet.create({
   roundText: { color: '#fff', fontWeight: '700' },
   surfaceWrap: { flex: 1, paddingHorizontal: 8 },
   surface: { flex: 1, backgroundColor: '#111', borderRadius: 8, overflow: 'hidden' },
-  img: { width: '100%', height: '100%' },
   center: { alignItems: 'center', justifyContent: 'center' },
   controls: {
     padding: 12,
@@ -158,4 +198,3 @@ const styles = StyleSheet.create({
   stepText: { fontSize: 18, fontWeight: '800' },
   valueText: { color: '#fff', minWidth: 64, textAlign: 'center', fontVariant: ['tabular-nums'] },
 });
-
