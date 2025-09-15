@@ -8,6 +8,7 @@ import { Colors } from '@/constants/theme';
 import { useRouter } from 'expo-router';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import * as ImageManipulator from 'expo-image-manipulator';
+import { Button, IconButton, Pill, CenterMarker } from '@/ui/components';
 
 type FilterId = 'none' | 'portra' | 'tri-x' | 'kodachrome';
 
@@ -63,9 +64,7 @@ export default function CameraScreen() {
         <ThemedText style={styles.permissionBody}>
           7Film needs camera access to take photos.
         </ThemedText>
-        <Pressable style={styles.button} onPress={requestPermission}>
-          <Text style={styles.buttonText}>Grant Permission</Text>
-        </Pressable>
+        <Button label="Grant Permission" variant="teal" onPress={requestPermission} />
       </ThemedView>
     );
   }
@@ -80,11 +79,10 @@ export default function CameraScreen() {
           {filter !== 'none' && <FilterOverlay filter={filter} />}
         </View>
         <View style={[styles.previewActions, { bottom: insets.bottom + 24 }]}>
-          <Pressable style={[styles.button, styles.hollow]} onPress={() => setPreviewUri(null)}>
-            <Text style={[styles.buttonText, styles.hollowText]}>Retake</Text>
-          </Pressable>
-          <Pressable
-            style={styles.buttonTeal}
+          <Button label="Retake" variant="outline" onPress={() => setPreviewUri(null)} />
+          <Button
+            label="Edit"
+            variant="teal"
             onPress={() => {
               try {
                 // @ts-ignore
@@ -93,9 +91,7 @@ export default function CameraScreen() {
                 console.warn('Failed to navigate to develop, ensure expo-router is available', e);
               }
             }}
-          >
-            <Text style={styles.buttonTealText}>Edit</Text>
-          </Pressable>
+          />
         </View>
       </View>
     );
@@ -118,7 +114,7 @@ export default function CameraScreen() {
         {filter !== 'none' && <FilterOverlay filter={filter} />}
         {/* Center framing marker inside the 4:3 box */}
         <View pointerEvents="none" style={styles.centerMarkerWrap}>
-          <View style={styles.centerMarker} />
+          <CenterMarker />
         </View>
       </View>
 
@@ -153,7 +149,7 @@ export default function CameraScreen() {
             const scale = zoomX.interpolate({ inputRange, outputRange: [0.95, 1, 0.95], extrapolate: 'clamp' });
             return (
               <Animated.View key={label} style={[styles.sliderItem, { width: ITEM_W, opacity, transform: [{ scale }] }]}>
-                <Text style={[styles.sliderText, idx === zoomIndex && styles.sliderTextActive]}>{label}</Text>
+                <Pill active={idx === zoomIndex}>{label}</Pill>
               </Animated.View>
             );
           })}
@@ -185,7 +181,7 @@ export default function CameraScreen() {
             const scale = filterX.interpolate({ inputRange, outputRange: [0.95, 1, 0.95], extrapolate: 'clamp' });
             return (
               <Animated.View key={f.id} style={[styles.sliderItem, { width: ITEM_W, opacity, transform: [{ scale }] }]}>
-                <Text style={[styles.sliderText, f.id === filter && styles.sliderTextActive]}>{f.label}</Text>
+                <Pill active={f.id === filter}>{f.label}</Pill>
               </Animated.View>
             );
           })}
@@ -193,9 +189,9 @@ export default function CameraScreen() {
 
         <View style={styles.shutterRow}>
           {/* Left: Library */}
-          <Pressable style={styles.circleBtn} onPress={() => router.push('/library')}>
+          <IconButton onPress={() => router.push('/library')}>
             <IconSymbol name="square.stack" size={22} color="#fff" />
-          </Pressable>
+          </IconButton>
 
           {/* Shutter */}
           <Pressable
@@ -241,9 +237,9 @@ export default function CameraScreen() {
           </Pressable>
 
           {/* Right: Presets panel (for now keep as placeholder action) */}
-          <Pressable style={styles.circleBtn} onPress={() => {/* Future: open presets drawer */}}>
+          <IconButton onPress={() => { /* Future: open presets drawer */ }}>
             <IconSymbol name="wand.and.stars" size={22} color="#fff" />
-          </Pressable>
+          </IconButton>
         </View>
 
         {/* Flash control bubble */}
