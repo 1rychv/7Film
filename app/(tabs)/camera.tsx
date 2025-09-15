@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { StyleSheet, View, Text, Pressable, Image, ScrollView } from 'react-native';
+import { StyleSheet, View, Text, Pressable, Image, ScrollView, NativeSyntheticEvent, NativeScrollEvent } from 'react-native';
 import { CameraView, useCameraPermissions, CameraType, FlashMode } from 'expo-camera';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
@@ -30,6 +30,13 @@ export default function CameraScreen() {
     ],
     []
   );
+
+  const zoomSteps = useMemo(() => [0.5, 1, 2, 3], []);
+  const [zoomIndex, setZoomIndex] = useState(1); // default 1x
+
+  const ITEM_W = 68;
+  const getOpacityForDistance = (d: number) => (d <= 0 ? 1 : d === 1 ? 0.4 : d === 2 ? 0.2 : 0.1);
+  const getScaleForDistance = (d: number) => (d <= 0 ? 1 : d === 1 ? 0.95 : d === 2 ? 0.9 : 0.85);
 
   if (!permission) {
     return <View style={styles.fill} />;
@@ -85,7 +92,7 @@ export default function CameraScreen() {
   }
 
   return (
-    <View style={styles.fill}>
+    <View style={styles.container}>
       <View style={styles.cameraBox}>
         <CameraView
           ref={cameraRef}
@@ -105,39 +112,70 @@ export default function CameraScreen() {
 
       {/* Bottom controls */}
       <View style={styles.bottomBar}>
-        {/* Lens selector pill */}
-        <View style={styles.lensPill}>
-          {['0.5', '1x', '2x', '3x'].map((label, idx) => {
-            const selected = (idx === 1 && zoom < 0.3) || (idx === 0 && zoom < 0.05) || (idx === 2 && zoom >= 0.3 && zoom < 0.7) || (idx === 3 && zoom >= 0.7);
+        {/* Zoom slider (snap, fade by distance) */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          snapToInterval={ITEM_W}
+          decelerationRate="fast"
+          contentContainerStyle={{ paddingHorizontal: 24 }}
+          onMomentumScrollEnd={(e: NativeSyntheticEvent<NativeScrollEvent>) => {
+            const x = e.nativeEvent.contentOffset.x;
+            const idx = Math.round(x / ITEM_W);
+            const clamped = Math.max(0, Math.min(zoomSteps.length - 1, idx));
+            setZoomIndex(clamped);
+            const step = zoomSteps[clamped];
+            // map to camera zoom 0..1 approx
+            setZoom(step === 0.5 ? 0.0 : step === 1 ? 0.2 : step === 2 ? 0.5 : 0.85);
+          }}
+        >
+          {zoomSteps.map((step, idx) => {
+            const dist = Math.abs(idx - zoomIndex);
+            const active = idx === zoomIndex;
+            const label = step === 1 ? '1x' : step.toString();
             return (
               <Pressable
                 key={label}
-                style={[styles.lensItem, selected && styles.lensItemActive]}
+                style={[styles.sliderItem, { width: ITEM_W, transform: [{ scale: getScaleForDistance(dist) }], opacity: getOpacityForDistance(dist) }]}
                 onPress={() => {
-                  // approximate zoom ranges; real optical lenses differ per device
-                  if (label === '0.5') setZoom(0.0);
-                  if (label === '1x') setZoom(0.2);
-                  if (label === '2x') setZoom(0.5);
-                  if (label === '3x') setZoom(0.85);
+                  setZoomIndex(idx);
+                  setZoom(step === 0.5 ? 0.0 : step === 1 ? 0.2 : step === 2 ? 0.5 : 0.85);
                 }}
               >
-                <Text style={[styles.lensText, selected && styles.lensTextActive]}>{label}</Text>
+                <Text style={[styles.sliderText, active && styles.sliderTextActive]}>{label}</Text>
               </Pressable>
             );
           })}
-        </View>
+        </ScrollView>
 
-        {/* Preset chips */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filters}>
-          {filters.map((f) => (
-            <Pressable
-              key={f.id}
-              onPress={() => setFilter(f.id)}
-              style={[styles.chip, filter === f.id && styles.chipActive]}
-            >
-              <Text style={[styles.chipText, filter === f.id && styles.chipTextActive]}>{f.label}</Text>
-            </Pressable>
-          ))}
+        {/* Filter slider (snap, fade by distance) */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          snapToInterval={ITEM_W}
+          decelerationRate="fast"
+          contentContainerStyle={{ paddingHorizontal: 24 }}
+          onMomentumScrollEnd={(e: NativeSyntheticEvent<NativeScrollEvent>) => {
+            const x = e.nativeEvent.contentOffset.x;
+            const idx = Math.round(x / ITEM_W);
+            const clamped = Math.max(0, Math.min(filters.length - 1, idx));
+            setFilter(filters[clamped].id);
+          }}
+        >
+          {filters.map((f, idx) => {
+            const currentIndex = filters.findIndex((ff) => ff.id === filter);
+            const dist = Math.abs(idx - currentIndex);
+            const active = f.id === filter;
+            return (
+              <Pressable
+                key={f.id}
+                style={[styles.sliderItem, { width: ITEM_W, transform: [{ scale: getScaleForDistance(dist) }], opacity: getOpacityForDistance(dist) }]}
+                onPress={() => setFilter(f.id)}
+              >
+                <Text style={[styles.sliderText, active && styles.sliderTextActive]}>{f.label}</Text>
+              </Pressable>
+            );
+          })}
         </ScrollView>
 
         <View style={styles.shutterRow}>
@@ -224,6 +262,7 @@ function FilterOverlay({ filter }: { filter: FilterId }) {
 }
 
 const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#000' },
   fill: { flex: 1 },
   center: { alignItems: 'center', justifyContent: 'center' },
   permissionTitle: { fontSize: 18, fontWeight: '600', marginBottom: 8 },
@@ -347,22 +386,18 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.8,
     shadowRadius: 12,
   },
-  lensPill: {
-    flexDirection: 'row',
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    padding: 6,
+  sliderItem: {
+    height: 36,
+    marginHorizontal: 2,
     borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.5)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.18)',
   },
-  lensItem: {
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderRadius: 999,
-  },
-  lensItemActive: { backgroundColor: '#2ED1C4' }, // teal accent
-  lensText: { color: '#fff', fontWeight: '700' },
-  lensTextActive: { color: '#000' },
+  sliderText: { color: '#fff', fontWeight: '700' },
+  sliderTextActive: { color: '#2ED1C4' },
   flashWrap: {
     position: 'absolute',
     right: 16,
