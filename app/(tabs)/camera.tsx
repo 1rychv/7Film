@@ -6,6 +6,7 @@ import { ThemedText } from '@/components/themed-text';
 import { Colors } from '@/constants/theme';
 import { useRouter } from 'expo-router';
 import { IconSymbol } from '@/components/ui/icon-symbol';
+import * as ImageManipulator from 'expo-image-manipulator';
 
 type FilterId = 'none' | 'portra' | 'tri-x' | 'kodachrome';
 
@@ -52,8 +53,10 @@ export default function CameraScreen() {
   if (previewUri) {
     return (
       <View style={styles.fill}>
-        <Image source={{ uri: previewUri }} style={styles.fill} resizeMode="cover" />
-        {filter !== 'none' && <FilterOverlay filter={filter} />}
+        <View style={styles.cameraBox}>
+          <Image source={{ uri: previewUri }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+          {filter !== 'none' && <FilterOverlay filter={filter} />}
+        </View>
         <View style={styles.previewActions}>
           <Pressable style={[styles.button, styles.hollow]} onPress={() => setPreviewUri(null)}>
             <Text style={[styles.buttonText, styles.hollowText]}>Retake</Text>
@@ -83,20 +86,21 @@ export default function CameraScreen() {
 
   return (
     <View style={styles.fill}>
-      <CameraView
-        ref={cameraRef}
-        style={styles.fill}
-        facing={facing}
-        flash={flash}
-        enableTorch={flash === 'torch'}
-        zoom={zoom}
-        animateShutter
-      />
-      {filter !== 'none' && <FilterOverlay filter={filter} />}    
-
-      {/* Center framing marker */}
-      <View pointerEvents="none" style={styles.centerMarkerWrap}>
-        <View style={styles.centerMarker} />
+      <View style={styles.cameraBox}>
+        <CameraView
+          ref={cameraRef}
+          style={StyleSheet.absoluteFill}
+          facing={facing}
+          flash={flash}
+          enableTorch={flash === 'torch'}
+          zoom={zoom}
+          animateShutter
+        />
+        {filter !== 'none' && <FilterOverlay filter={filter} />}
+        {/* Center framing marker inside the 4:3 box */}
+        <View pointerEvents="none" style={styles.centerMarkerWrap}>
+          <View style={styles.centerMarker} />
+        </View>
       </View>
 
       {/* Bottom controls */}
@@ -150,7 +154,32 @@ export default function CameraScreen() {
                   quality: 1,
                   skipProcessing: false,
                 });
-                if (photo?.uri) setPreviewUri(photo.uri);
+                if (photo?.uri) {
+                  // Enforce 4:3 portrait crop
+                  const w = photo.width ?? 0;
+                  const h = photo.height ?? 0;
+                  let cropW = w;
+                  let cropH = h;
+                  let originX = 0;
+                  let originY = 0;
+                  const targetRatio = 4 / 3.0; // height / width for portrait 4:3
+                  const currentRatio = h / (w || 1);
+                  if (currentRatio > targetRatio) {
+                    // too tall -> reduce height
+                    cropH = Math.floor(w * targetRatio);
+                    originY = Math.floor((h - cropH) / 2);
+                  } else if (currentRatio < targetRatio) {
+                    // too wide -> reduce width
+                    cropW = Math.floor(h / targetRatio);
+                    originX = Math.floor((w - cropW) / 2);
+                  }
+                  const result = await ImageManipulator.manipulateAsync(
+                    photo.uri,
+                    [{ crop: { originX, originY, width: cropW, height: cropH } }],
+                    { compress: 1, format: ImageManipulator.SaveFormat.JPEG }
+                  );
+                  setPreviewUri(result.uri);
+                }
               } catch (e) {
                 console.warn('Failed to take picture', e);
               }
@@ -199,6 +228,13 @@ const styles = StyleSheet.create({
   center: { alignItems: 'center', justifyContent: 'center' },
   permissionTitle: { fontSize: 18, fontWeight: '600', marginBottom: 8 },
   permissionBody: { opacity: 0.8, marginBottom: 16 },
+  cameraBox: {
+    width: '100%',
+    aspectRatio: 3 / 4, // 4:3 portrait box
+    backgroundColor: '#000',
+    alignSelf: 'center',
+    overflow: 'hidden',
+  },
   button: {
     backgroundColor: Colors.light.tint,
     paddingHorizontal: 16,

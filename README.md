@@ -47,6 +47,7 @@ Notes:
 
 - iOS permission text is configured in `app.json`.
 - Captured photos show a simple overlay to preview “film” looks. The Develop screen (`app/develop.tsx`) uses GL (expo-gl + three) to preview halation with simple step controls.
+ - Camera preview and captures are constrained to 4:3 portrait: the live preview is shown in a 4:3 box, and captured photos are center-cropped to 4:3 using `expo-image-manipulator`.
 
 ## Get a fresh project
 
