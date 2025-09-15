@@ -73,23 +73,19 @@ export default function CameraScreen() {
   // Preview captured photo
   if (previewUri) {
     return (
-      <View style={styles.fill}>
+      <View style={styles.container}>
+        <View style={{ height: insets.top + 12 }} />
         <View style={styles.cameraBox}>
           <Image source={{ uri: previewUri }} style={StyleSheet.absoluteFill} resizeMode="cover" />
           {filter !== 'none' && <FilterOverlay filter={filter} />}
         </View>
-        <View style={styles.previewActions}>
+        <View style={[styles.previewActions, { bottom: insets.bottom + 24 }]}>
           <Pressable style={[styles.button, styles.hollow]} onPress={() => setPreviewUri(null)}>
             <Text style={[styles.buttonText, styles.hollowText]}>Retake</Text>
           </Pressable>
           <Pressable
-            style={styles.button}
+            style={styles.buttonTeal}
             onPress={() => {
-              // Navigate to Develop screen with the captured URI
-              const href = `/(develop)?uri=${encodeURIComponent(previewUri)}`;
-              // expo-router supports string hrefs via imperative navigation, but we can also defer
-              // For simplicity, set a global location by using the router link in UI. Here we fallback to dynamic import
-              // We'll use an inline dynamic to avoid adding a direct dependency at top-level.
               try {
                 // @ts-ignore
                 require('expo-router').router.push({ pathname: '/develop', params: { uri: previewUri } });
@@ -98,7 +94,7 @@ export default function CameraScreen() {
               }
             }}
           >
-            <Text style={styles.buttonText}>Edit</Text>
+            <Text style={styles.buttonTealText}>Edit</Text>
           </Pressable>
         </View>
       </View>
@@ -299,11 +295,18 @@ const styles = StyleSheet.create({
   },
   buttonText: { color: '#fff', fontWeight: '700' },
   hollow: {
-    backgroundColor: 'transparent',
+    backgroundColor: 'rgba(0,0,0,0.6)',
     borderWidth: 2,
     borderColor: '#fff',
   },
   hollowText: { color: '#fff' },
+  buttonTeal: {
+    backgroundColor: '#2ED1C4',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 12,
+  },
+  buttonTealText: { color: '#fff', fontWeight: '700' },
   // No top bar per spec
   bottomBar: {
     position: 'absolute',
